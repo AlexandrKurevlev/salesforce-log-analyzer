@@ -3,8 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <title>Salesforce Log Analyzer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.1/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://cdn.materialdesignicons.com/2.8.94/css/materialdesignicons.min.css">
+    <style>
+        ul {
+            padding-left: 1.5em;
+            line-height: 1.5em;
+            list-style-type: none;
+        }
+
+        .collapser {
+            margin-left: -20px;
+        }
+
+        .tag {
+            margin-right: 1em;
+        }
+    </style>
 </head>
 <body>
-Hello World
+<div id="app">
+    <div class="columns">
+        <div class="column is-8 is-offset-2">
+            <h1 class="title has-text-centered">Salesforce Log Analyzer</h1>
+        </div>
+    </div>
+    <div class="columns">
+        <div class="column is-8 is-offset-2">
+            <textarea class="textarea" placeholder="Paste Debug Log" rows="20" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" id="logs"></textarea>
+        </div>
+    </div>
+    <div class="columns">
+        <div class="column column is-8 is-offset-2">
+            <button class="button is-primary is-pulled-right" id="processLogs">Process</button>
+        </div>
+    </div>
+
+    <div id="processedLogs"></div>
+</div>
 </body>
+
+<script>
+
+    let openingEvents = new Set();
+    openingEvents.add('EXECUTION_STARTED');
+    openingEvents.add('CODE_UNIT_STARTED');
+    openingEvents.add('SYSTEM_METHOD_ENTRY');
+    openingEvents.add('SYSTEM_CONSTRUCTOR_ENTRY');
+    openingEvents.add('SOQL_EXECUTE_BEGIN');
+    openingEvents.add('CUMULATIVE_LIMIT_USAGE');
+    openingEvents.add('DML_BEGIN');
+    openingEvents.add('SYSTEM_MODE_ENTER');
+    openingEvents.add('CONSTRUCTOR_ENTRY');
+    openingEvents.add('METHOD_ENTRY');
+    openingEvents.add('WF_ACTION');
+    openingEvents.add('WF_CRITERIA_BEGIN');
+
+    let closingEvents = new Set();
+    closingEvents.add('EXECUTION_FINISHED');
+    closingEvents.add('CODE_UNIT_FINISHED');
+    closingEvents.add('SYSTEM_METHOD_EXIT');
+    closingEvents.add('SYSTEM_CONSTRUCTOR_EXIT');
+    closingEvents.add('SOQL_EXECUTE_END');
+    closingEvents.add('CUMULATIVE_LIMIT_USAGE_END');
+    closingEvents.add('DML_END');
+    closingEvents.add('SYSTEM_MODE_EXIT');
+    closingEvents.add('CONSTRUCTOR_EXIT');
+    closingEvents.add('METHOD_EXIT');
+    closingEvents.add('WF_ACTIONS_END');
+    closingEvents.add('WF_CRITERIA_END');
+
+    let generateTreeView = function(processedLogs) {
+        let generatedHtml = '<ul>';
+        generatedHtml += generateHtmlForLogEntry(processedLogs);
+        generatedHtml += '</ul>';
+
+        return generatedHtml;
+    };
+
+    let generateHtmlForLogEntry = function(processedLogs) {
+        let currentHtmlLogEntry = '<li>';
+        if (processedLogs.opening_event) {
+            currentHtmlLogEntry += `<div>${processedLogs.children && processedLogs.children.length ? '<span class="collapser icon is-small has-text-black" onclick="toggleLogEntry(this)"><i class="mdi mdi-dark mdi-minus"></i></span>' : ''}
+                            <span class="tag">${processedLogs.opening_event.event}</span>${processedLogs.opening_event.data}
+                            </div>`;
+        }
+
+        if (processedLogs.children && processedLogs.children.length) {
+            currentHtmlLogEntry += '<ul>';
+            for (let log of processedLogs.children) {
+                currentHtmlLogEntry += generateHtmlForLogEntry(log);
+            }
+            currentHtmlLogEntry += '</ul>';
+        }
+
+        if (processedLogs.closing_event) {
+            currentHtmlLogEntry += `<div><span class="tag">${processedLogs.closing_event.event}</span>${processedLogs.closing_event.data}</div>`;
+        }
+        currentHtmlLogEntry += '</li>';
+
+        return currentHtmlLogEntry;
+    };
+
+    let processLogs = function() {
+        //TODO: clear everything
+
+        const logs = document.getElementById('logs').value;
+        let logLines = logs.split('\n');
+
+        let pattern = /(\d+:\d+:\d+.\d+) \(\d+\)\|(\w+)/;
+
+        let stack = [];
+
+        let currentElement = {
+            'opening_event': null,
+            'closing_event': null,
+            'children': []
+        };
+
+        stack.push(currentElement);
+
+        let processedLogs = currentElement;
+
+        for (let logLine of logLines) {
+            let match = pattern.exec(logLine);
+            if (match) {
+                let data = logLine.substring(logLine.indexOf(match[2]) + match[2].length + 1);
+
+                if (openingEvents.has(match[2])) {
+                    let newElement = {
+                        'opening_event': {'time': match[1], 'event': match[2], 'data': data},
+                        'closing_event': null,
+                        'children': []
+                    };
+
+                    currentElement.children.push(newElement);
+
+                    stack.push(currentElement);
+
+                    currentElement = newElement
+                } else if (closingEvents.has(match[2])) {
+                    currentElement.closing_event = {'time': match[1], 'event': match[2], 'data': data};
+
+                    currentElement = stack.pop();
+                } else {
+                    let newElement = {
+                        'opening_event': {'time': match[1], 'event': match[2], 'data': data},
+                        'closing_event': null,
+                        'children': []
+                    };
+
+                    currentElement.children.push(newElement);
+                }
+
+            } else {
+                //TODO: add log line to current log entry if it isn't separate log entry
+            }
+        }
+
+        document.getElementById('processedLogs').insertAdjacentHTML('beforeend', generateTreeView(processedLogs));
+    };
+
+    let toggleLogEntry = function(event) {
+        let parentDiv = event.parentElement;
+        let ul = parentDiv.nextSibling;
+        if (ul.style.display === 'none') {
+            ul.style.display = 'block';
+        } else {
+            ul.style.display = 'none';
+        }
+
+        let icon = event.firstChild;
+        icon.classList.toggle('mdi-minus');
+        icon.classList.toggle('mdi-plus');
+    };
+
+    let processLogsButton = document.getElementById('processLogs');
+    processLogsButton.addEventListener('click', processLogs, false);
+
+</script>
 </html>
