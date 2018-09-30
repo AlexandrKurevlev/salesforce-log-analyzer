@@ -1,0 +1,1 @@
+web: ./build/install/salesforce-log-analyzer/bin/salesforce-log-analyzer
