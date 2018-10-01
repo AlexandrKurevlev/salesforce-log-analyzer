@@ -19,6 +19,6 @@ dependencies {
 }
 
 applicationName = 'salesforce-log-analyzer'
-mainClassName = 'App'
+mainClassName = 'com.example.App'
 
 task stage(dependsOn: ['clean', 'installDist'])
